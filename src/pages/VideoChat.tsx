@@ -9,7 +9,7 @@ import {
 import Peer from 'simple-peer';
 import io from 'socket.io-client';
 
-const socket = io('https://chitchat-backend-op5h.onrender.com'); // Replace with your deployed backend
+const socket = io('https://chitchat-backend-op5h.onrender.com'); // signaling server
 
 const VideoChat = () => {
   const [micEnabled, setMicEnabled] = useState(true);
@@ -25,15 +25,16 @@ const VideoChat = () => {
   const localStream = useRef<MediaStream | null>(null);
 
   useEffect(() => {
-    // Get user media
+    // Step 1: Get user media
     navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
       localStream.current = stream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
+        localVideoRef.current.muted = true;
       }
     });
 
-    // Socket event listeners
+    // Step 2: Socket event listeners
     socket.on('other-user', handleReceiveCall);
     socket.on('user-joined', handleUserJoined);
     socket.on('signal', handleSignal);
@@ -47,6 +48,7 @@ const VideoChat = () => {
     };
   }, []);
 
+  // Step 3: Initiator connects
   const handleReceiveCall = (userId: string) => {
     const peer = new Peer({
       initiator: true,
@@ -59,14 +61,20 @@ const VideoChat = () => {
     });
 
     peer.on('stream', stream => {
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream;
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = stream;
+      }
     });
+
+    peer.on('close', () => cleanup());
+    peer.on('error', () => cleanup());
 
     peerRef.current = peer;
     setIsConnected(true);
     setPartnerName('Stranger');
   };
 
+  // Step 3: Receiver connects
   const handleUserJoined = ({ signal, callerId }: any) => {
     const peer = new Peer({
       initiator: false,
@@ -79,8 +87,13 @@ const VideoChat = () => {
     });
 
     peer.on('stream', stream => {
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream;
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = stream;
+      }
     });
+
+    peer.on('close', () => cleanup());
+    peer.on('error', () => cleanup());
 
     peer.signal(signal);
     peerRef.current = peer;
@@ -96,13 +109,11 @@ const VideoChat = () => {
     peerRef.current?.signal(signal);
   };
 
+  // Step 5: Connect
   const connectToRandomUser = () => {
     setIsLoading(true);
     setPartnerName(null);
-    if (peerRef.current) {
-      peerRef.current.destroy();
-      peerRef.current = null;
-    }
+    cleanup();
 
     setTimeout(() => {
       socket.emit('join-room');
@@ -110,12 +121,21 @@ const VideoChat = () => {
     }, 1000);
   };
 
+  // Step 5: Disconnect
   const disconnect = () => {
-    peerRef.current?.destroy();
-    peerRef.current = null;
+    cleanup();
     setIsConnected(false);
     setPartnerName(null);
-    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+  };
+
+  const cleanup = () => {
+    if (peerRef.current) {
+      peerRef.current.destroy();
+      peerRef.current = null;
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
+    }
   };
 
   return (
@@ -123,8 +143,7 @@ const VideoChat = () => {
       <div className="container max-w-6xl mx-auto px-4 py-8">
         <h1 className="text-3xl font-bold mb-6">Video Chat</h1>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {/* Sidebar (unchanged) */}
-          {/* ... keep your original sidebar here ... */}
+          {/* Sidebar - leave unchanged */}
 
           {/* Video Area */}
           <div className="md:col-span-2 flex flex-col">
@@ -156,7 +175,6 @@ const VideoChat = () => {
                     playsInline
                     className="absolute inset-0 w-full h-full object-cover"
                   />
-
                   <div className="absolute bottom-4 right-4 w-1/4 aspect-video bg-chat-primary rounded-lg shadow-lg overflow-hidden border-2 border-white">
                     <video
                       ref={localVideoRef}
@@ -176,8 +194,8 @@ const VideoChat = () => {
               )}
             </div>
 
-            {/* Controls (unchanged, still works) */}
-            {/* ... keep your original controls here ... */}
+            {/* Controls - unchanged */}
+            {/* ... your original control buttons here ... */}
           </div>
         </div>
       </div>
@@ -186,4 +204,5 @@ const VideoChat = () => {
 };
 
 export default VideoChat;
+
 
